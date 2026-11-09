@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=mdnote
+Comment=Markdown note editor with hidden syntax
+Exec=mdnote
+Terminal=false
+Categories=Office;TextEditor;
