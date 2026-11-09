@@ -12,11 +12,14 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPair>
 #include <QPlainTextEdit>
 #include <QSaveFile>
 #include <QStatusBar>
 #include <QTextStream>
 #include <QToolBar>
+#include <QVariant>
+#include <functional>
 
 MainWindow::MainWindow()
 {

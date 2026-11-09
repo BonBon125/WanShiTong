@@ -300,7 +300,7 @@ namespace {
         QString codeLang, codeFence;
         int codeQuote = 0;
 
-        void emit(const QStringList& lines, int quote, Kind kind)
+        void put(const QStringList& lines, int quote, Kind kind)
         {
             if (prev != None) {
                 const bool tight = (kind == List && prev == List && quote == prevQuote) || (kind == Footnote && prev == Footnote && quote == prevQuote);
@@ -333,7 +333,7 @@ namespace {
             lines << fence;
             inCode = false;
             code.clear();
-            emit(lines, codeQuote, Code);
+            put(lines, codeQuote, Code);
         }
 
         void writeFrame(QTextFrame* frame)
@@ -374,7 +374,7 @@ namespace {
 
             if (bf.boolProperty(PropIsRule)) {
                 const QString s = bf.stringProperty(PropRuleStyle);
-                emit({ s.isEmpty() ? QStringLiteral("---") : s }, q, Rule);
+                put({ s.isEmpty() ? QStringLiteral("---") : s }, q, Rule);
                 return;
             }
 
@@ -387,7 +387,7 @@ namespace {
                 QStringList res;
                 for (int i = 0; i < ls.size(); ++i)
                     res << (i == 0 ? "[^" + bf.stringProperty(PropFootnoteDef) + "]: " + ls[i] : "    " + ls[i]);
-                emit(res, q, Footnote);
+                put(res, q, Footnote);
                 return;
             }
 
@@ -396,9 +396,9 @@ namespace {
                 s.replace(QLatin1Char('\n'), QLatin1Char(' '));
                 s = s.trimmed();
                 if (bf.boolProperty(PropSetext) && lvl <= 2 && !s.isEmpty())
-                    emit({ s, QString(qMax(3, s.size()), lvl == 1 ? QLatin1Char('=') : QLatin1Char('-')) }, q, Heading);
+                    put({ s, QString(qMax(3, s.size()), lvl == 1 ? QLatin1Char('=') : QLatin1Char('-')) }, q, Heading);
                 else
-                    emit({ QString(lvl, QLatin1Char('#')) + QLatin1Char(' ') + s }, q, Heading);
+                    put({ QString(lvl, QLatin1Char('#')) + QLatin1Char(' ') + s }, q, Heading);
                 return;
             }
 
@@ -418,11 +418,11 @@ namespace {
                 for (int i = 0; i < ls.size(); ++i)
                     res << (i == 0 ? ind + marker + QLatin1Char(' ') + task + ls[i]
                                    : ind + QString(marker.size() + 1, QLatin1Char(' ')) + ls[i]);
-                emit(res, q, List);
+                put(res, q, List);
                 return;
             }
 
-            emit(blockStartEscape(inlineMarkdown(b, o, false)).split(QLatin1Char('\n')), q, Para);
+            put(blockStartEscape(inlineMarkdown(b, o, false)).split(QLatin1Char('\n')), q, Para);
         }
 
         void writeTable(QTextTable* t)
@@ -458,7 +458,7 @@ namespace {
                     lines << "| " + d.join(QLatin1String(" | ")) + " |";
                 }
             }
-            emit(lines, 0, Table);
+            put(lines, 0, Table);
         }
     };
 
@@ -475,7 +475,7 @@ QString MarkdownWriter::write(const QTextDocument* doc) const
         QStringList defs;
         for (auto it = refs.begin(); it != refs.end(); ++it)
             defs << "[" + it.key() + "]: " + it.value().toString();
-        w.emit(defs, 0, Writer::Para);
+        w.put(defs, 0, Writer::Para);
     }
     while (!w.out.isEmpty() && w.out.last().trimmed().isEmpty())
         w.out.removeLast();

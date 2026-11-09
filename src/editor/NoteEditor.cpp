@@ -11,6 +11,7 @@
 #include <QMimeData>
 #include <QPainter>
 #include <QScrollBar>
+#include <QSet>
 #include <QTextDocumentFragment>
 #include <QTextTable>
 #include <QVariantMap>

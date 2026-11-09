@@ -8,6 +8,7 @@
 #include <QGuiApplication>
 #include <QImage>
 #include <QPainter>
+#include <QPalette>
 #include <QTextBlock>
 #include <QTextBlockFormat>
 #include <QTextCharFormat>
