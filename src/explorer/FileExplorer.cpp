@@ -97,20 +97,16 @@ FileExplorer::FileExplorer(QWidget* parent)
     connect(newNote, &QToolButton::clicked, this, [this] { emit newNoteRequested(selectedDirectory()); });
     connect(newFolder, &QToolButton::clicked, this, [this] { emit newFolderRequested(selectedDirectory()); });
 
-    // F2 and Delete, active only while the tree has focus.
-    auto addShortcut = [this](const QKeySequence& keys, auto signal) {
-        auto* action = new QAction(m_tree);
-        action->setShortcut(keys);
-        action->setShortcutContext(Qt::WidgetShortcut);
-        connect(action, &QAction::triggered, this, [this, signal] {
-            const QString path = selectedItem();
-            if (!path.isEmpty())
-                emit(this->*signal)(path);
-        });
-        m_tree->addAction(action);
-    };
-    addShortcut(QKeySequence(Qt::Key_F2), &FileExplorer::renameRequested);
-    addShortcut(QKeySequence(QKeySequence::Delete), &FileExplorer::trashRequested);
+    // Delete key, active only while the tree has focus. (F2 is a window-wide action.)
+    auto* remove = new QAction(m_tree);
+    remove->setShortcut(QKeySequence(QKeySequence::Delete));
+    remove->setShortcutContext(Qt::WidgetShortcut);
+    connect(remove, &QAction::triggered, this, [this] {
+        const QString path = selectedItem();
+        if (!path.isEmpty())
+            emit deleteRequested(path);
+    });
+    m_tree->addAction(remove);
 }
 
 void FileExplorer::setRoot(const QString& directory)
@@ -133,6 +129,11 @@ void FileExplorer::select(const QString& path)
         m_tree->expand(p);
     m_tree->setCurrentIndex(index);
     m_tree->scrollTo(index);
+}
+
+QString FileExplorer::focusedItem() const
+{
+    return m_tree->hasFocus() ? selectedItem() : QString();
 }
 
 QString FileExplorer::selectedItem() const
@@ -162,11 +163,11 @@ void FileExplorer::showContextMenu(const QPoint& pos)
     QAction* newNote = menu.addAction(makeIcon(Glyph::NewNote), tr("New note…"));
     QAction* newFolder = menu.addAction(makeIcon(Glyph::NewFolder), tr("New folder…"));
     QAction* rename = nullptr;
-    QAction* trash = nullptr;
+    QAction* remove = nullptr;
     if (index.isValid()) {
         menu.addSeparator();
-        rename = menu.addAction(tr("Rename…"));
-        trash = menu.addAction(tr("Move to trash"));
+        rename = menu.addAction(makeIcon(Glyph::Rename), tr("Rename…"));
+        remove = menu.addAction(makeIcon(Glyph::Trash), tr("Delete…"));
     }
 
     QAction* chosen = menu.exec(m_tree->viewport()->mapToGlobal(pos));
@@ -178,6 +179,6 @@ void FileExplorer::showContextMenu(const QPoint& pos)
         emit newFolderRequested(directory);
     else if (chosen == rename)
         emit renameRequested(path);
-    else if (chosen == trash)
-        emit trashRequested(path);
+    else if (chosen == remove)
+        emit deleteRequested(path);
 }

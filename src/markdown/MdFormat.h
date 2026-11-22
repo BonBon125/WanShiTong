@@ -1,22 +1,23 @@
 #pragma once
 // Custom QTextFormat properties + helper functions shared by the
 // parser, the writer and the editor.
-
+#include "theme/Theme.h"
 #include <QBrush>
 #include <QColor>
 #include <QFontMetrics>
 #include <QGuiApplication>
 #include <QImage>
 #include <QPainter>
-#include <QPalette>
 #include <QTextBlock>
 #include <QTextBlockFormat>
 #include <QTextCharFormat>
 #include <QTextCursor>
 #include <QTextDocument>
+#include <QTextFrame>
 #include <QTextList>
 #include <QTextTable>
 #include <QUrl>
+#include <QVector>
 
 namespace md {
 
@@ -47,18 +48,21 @@ enum LinkKind { LinkInline = 0,
 constexpr qreal kBasePt = 12.0;
 constexpr int kQuoteIndent = 22;
 
-inline QColor linkColor() { return QColor(0x6c, 0xb6, 0xff); }
-inline QColor mutedColor() { return QColor(0x8b, 0x95, 0xa1); }
-inline QColor borderColor() { return QColor(0x56, 0x5f, 0x6b); }
-inline QColor canvasBg() { return QColor(0x17, 0x19, 0x1d); } // area around the page
-inline QColor pageBg() { return QColor(0x2a, 0x2e, 0x35); } // writing surface
-inline QColor codeBg() { return QColor(0x3d, 0x44, 0x4e); }
-inline QColor blockBg() { return QColor(0x1f, 0x23, 0x29); }
-inline QColor quoteBg() { return QColor(0x32, 0x38, 0x44); }
-inline QColor highlightBg() { return QColor(0x7a, 0x62, 0x00); }
-inline QColor headerBg() { return QColor(0x38, 0x3f, 0x49); }
+// ---- colours (from the active theme) --------------------------------------
+
+inline QColor linkColor() { return theme().link; }
+inline QColor mutedColor() { return theme().muted; }
+inline QColor borderColor() { return theme().border; }
+inline QColor canvasBg() { return theme().canvas; }
+inline QColor pageBg() { return theme().page; }
+inline QColor codeBg() { return theme().inlineCode; }
+inline QColor blockBg() { return theme().codeBlock; }
+inline QColor quoteBg() { return theme().quote; }
+inline QColor highlightBg() { return theme().highlight; }
+inline QColor headerBg() { return theme().surface; }
 
 // ---- list markers ---------------------------------------------------------
+
 // Qt has no outlined-square style. We use "undefined" (Qt draws nothing)
 // and paint the square ourselves in NoteEditor::paintEvent.
 constexpr QTextListFormat::Style kHollowSquare = QTextListFormat::ListStyleUndefined;
@@ -82,6 +86,8 @@ inline QTextListFormat::Style bulletStyle(int level, bool task = false)
     };
     return styles[qMax(0, level) % 4];
 }
+
+// ---- fonts and base formats -----------------------------------------------
 
 inline QStringList monoFamilies()
 {
@@ -160,7 +166,7 @@ inline void clearLink(QTextCharFormat& f)
     f.setAnchor(false);
     f.setAnchorHref(QString());
     f.setProperty(PropLinkKind, QVariant(LinkInline));
-    f.setForeground(QGuiApplication::palette().color(QPalette::Text));
+    f.setForeground(theme().text);
     f.setFontUnderline(false);
 }
 
@@ -208,8 +214,8 @@ inline void restyleBlock(QTextBlock b)
     const bool code = bf.boolProperty(PropCodeBlock);
     const bool rule = bf.boolProperty(PropIsRule);
     const bool foot = bf.hasProperty(PropFootnoteDef);
-    qreal top = 0, bottom = 8, left = q * kQuoteIndent;
 
+    qreal top = 0, bottom = 8, left = q * kQuoteIndent;
     if (code) {
         const QTextBlock n = b.next();
         bottom = (n.isValid() && n.blockFormat().boolProperty(PropCodeBlock)) ? 0 : 8;
@@ -230,7 +236,6 @@ inline void restyleBlock(QTextBlock b)
         top = qMax<qreal>(top, 4);
         bottom = qMax<qreal>(bottom, 4);
     }
-
     bf.setTopMargin(top);
     bf.setBottomMargin(bottom);
     bf.setLeftMargin(left);
@@ -274,10 +279,6 @@ inline QTextTable* createTable(QTextCursor& cur, int rows, int cols, const QStri
     for (int r = 0; r < rows; ++r) {
         for (int c = 0; c < cols; ++c) {
             QTextTableCell cell = t->cellAt(r, c);
-            QTextTableCellFormat cf;
-            if (r == 0)
-                cf.setBackground(headerBg());
-            cell.setFormat(cf);
             QTextCursor cc = cell.firstCursorPosition();
             QTextBlockFormat bf;
             const QString a = aligns.value(c);
@@ -288,9 +289,97 @@ inline QTextTable* createTable(QTextCursor& cur, int rows, int cols, const QStri
             if (r == 0)
                 setBold(f, true);
             cc.setBlockCharFormat(f);
+            if (r == 0) {
+                QTextTableCellFormat cf = cell.format().toTableCellFormat();
+                cf.setBackground(headerBg());
+                cell.setFormat(cf);
+            }
         }
     }
     return t;
+}
+
+// ---- theme changes --------------------------------------------------------
+
+inline void recolorTables(QTextFrame* frame)
+{
+    const auto children = frame->childFrames();
+    for (QTextFrame* child : children) {
+        if (auto* t = qobject_cast<QTextTable*>(child)) {
+            QTextTableFormat tf = t->format();
+            tf.setBorderBrush(borderColor());
+            t->setFormat(tf);
+            for (int r = 0; r < tf.headerRowCount() && r < t->rows(); ++r) {
+                for (int c = 0; c < t->columns(); ++c) {
+                    QTextTableCell cell = t->cellAt(r, c);
+                    QTextTableCellFormat cf = cell.format().toTableCellFormat();
+                    cf.setBackground(headerBg());
+                    cell.setFormat(cf);
+                }
+            }
+        }
+        recolorTables(child);
+    }
+}
+
+// Re-applies theme colours to existing content. This clears the undo history,
+// but does not change the document's "modified" state.
+inline void recolorDocument(QTextDocument* doc)
+{
+    const bool modified = doc->isModified();
+    doc->setUndoRedoEnabled(false);
+
+    struct Span {
+        int position;
+        int length;
+        QTextCharFormat format;
+    };
+    QVector<Span> spans;
+    for (QTextBlock b = doc->begin(); b.isValid(); b = b.next()) {
+        for (QTextBlock::iterator it = b.begin(); !it.atEnd(); ++it) {
+            const QTextFragment fr = it.fragment();
+            if (fr.isValid())
+                spans.push_back({ fr.position(), fr.length(), fr.charFormat() });
+        }
+    }
+
+    QTextCursor c(doc);
+    c.beginEditBlock();
+    for (const Span& span : std::as_const(spans)) {
+        QTextCharFormat f = span.format;
+        if (f.isImageFormat()) {
+            const QTextImageFormat im = f.toImageFormat();
+            ensureImageResource(doc, im.name(), im.stringProperty(PropAlt));
+            continue;
+        }
+        f.clearForeground();
+        f.clearBackground();
+        if ((f.isAnchor() && !f.anchorHref().isEmpty()) || f.hasProperty(PropFootnoteRef))
+            f.setForeground(linkColor());
+        if (f.boolProperty(PropInlineCode))
+            f.setBackground(codeBg());
+        else if (f.boolProperty(PropHighlight))
+            f.setBackground(highlightBg());
+        c.setPosition(span.position);
+        c.setPosition(span.position + span.length, QTextCursor::KeepAnchor);
+        c.setCharFormat(f);
+    }
+    for (QTextBlock b = doc->begin(); b.isValid(); b = b.next()) {
+        QTextCharFormat f = b.charFormat();
+        if (!QTextCursor(b).currentTable()
+            && (f.hasProperty(QTextFormat::ForegroundBrush) || f.hasProperty(QTextFormat::BackgroundBrush))) {
+            f.clearForeground();
+            f.clearBackground();
+            QTextCursor(b).setBlockCharFormat(f);
+        }
+    }
+    restyleAll(doc);
+    recolorTables(doc->rootFrame());
+    c.endEditBlock();
+
+    doc->setUndoRedoEnabled(true);
+    doc->setModified(modified);
+    doc->markContentsDirty(0, doc->characterCount());
 }
 
 } // namespace md
