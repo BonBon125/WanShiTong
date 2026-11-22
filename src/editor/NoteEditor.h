@@ -3,6 +3,9 @@
 #include <QTextEdit>
 #include <QTextListFormat>
 
+class CodeHighlighter;
+class QPainter;
+
 class NoteEditor : public QTextEdit {
     Q_OBJECT
 public:
@@ -11,6 +14,7 @@ public:
     QString exportMarkdown() const;
     void importMarkdown(const QString& markdown);
     void setBaseDirectory(const QString& dir); // for relative image paths
+    void applyTheme(); // re-colours the editor and the open document
 
     md::WriterOptions& writerOptions() { return m_opts; }
 
@@ -67,7 +71,10 @@ private:
     bool tryAutoBullet();
     void updatePageGeometry();
     void drawHollowSquare(QPainter& p, const QTextBlock& b) const;
+    void applyPalette();
+    void recolorDocument();
 
+    CodeHighlighter* m_highlighter = nullptr;
     md::WriterOptions m_opts;
     QString m_lastLang;
 };

@@ -110,7 +110,7 @@ FileExplorer::FileExplorer(QWidget* parent)
         m_tree->addAction(action);
     };
     addShortcut(QKeySequence(Qt::Key_F2), &FileExplorer::renameRequested);
-    addShortcut(QKeySequence(QKeySequence::Delete), &FileExplorer::trashRequested);
+    addShortcut(QKeySequence(QKeySequence::Delete), &FileExplorer::deleteRequested);
 }
 
 void FileExplorer::setRoot(const QString& directory)
@@ -159,25 +159,32 @@ void FileExplorer::showContextMenu(const QPoint& pos)
         directory = m_model->isDir(index) ? path : QFileInfo(path).absolutePath();
 
     QMenu menu(this);
+    QAction* open = nullptr;
+    if (index.isValid()) {
+        open = menu.addAction(tr("Open"));
+        menu.addSeparator();
+    }
     QAction* newNote = menu.addAction(makeIcon(Glyph::NewNote), tr("New note…"));
     QAction* newFolder = menu.addAction(makeIcon(Glyph::NewFolder), tr("New folder…"));
     QAction* rename = nullptr;
-    QAction* trash = nullptr;
+    QAction* remove = nullptr;
     if (index.isValid()) {
         menu.addSeparator();
-        rename = menu.addAction(tr("Rename…"));
-        trash = menu.addAction(tr("Move to trash"));
+        rename = menu.addAction(makeIcon(Glyph::Rename), tr("Rename…\tF2"));
+        remove = menu.addAction(makeIcon(Glyph::Trash), tr("Delete…\tDel"));
     }
 
     QAction* chosen = menu.exec(m_tree->viewport()->mapToGlobal(pos));
     if (!chosen)
         return;
-    if (chosen == newNote)
+    if (chosen == open)
+        emit openRequested(path);
+    else if (chosen == newNote)
         emit newNoteRequested(directory);
     else if (chosen == newFolder)
         emit newFolderRequested(directory);
     else if (chosen == rename)
         emit renameRequested(path);
-    else if (chosen == trash)
-        emit trashRequested(path);
+    else if (chosen == remove)
+        emit deleteRequested(path);
 }

@@ -1,7 +1,7 @@
 #pragma once
 // Custom QTextFormat properties + helper functions shared by the
 // parser, the writer and the editor.
-
+#include "theme/Theme.h"
 #include <QBrush>
 #include <QColor>
 #include <QFontMetrics>
@@ -47,16 +47,19 @@ enum LinkKind { LinkInline = 0,
 constexpr qreal kBasePt = 12.0;
 constexpr int kQuoteIndent = 22;
 
-inline QColor linkColor() { return QColor(0x6c, 0xb6, 0xff); }
-inline QColor mutedColor() { return QColor(0x8b, 0x95, 0xa1); }
-inline QColor borderColor() { return QColor(0x56, 0x5f, 0x6b); }
-inline QColor canvasBg() { return QColor(0x17, 0x19, 0x1d); } // area around the page
-inline QColor pageBg() { return QColor(0x2a, 0x2e, 0x35); } // writing surface
-inline QColor codeBg() { return QColor(0x3d, 0x44, 0x4e); }
-inline QColor blockBg() { return QColor(0x1f, 0x23, 0x29); }
-inline QColor quoteBg() { return QColor(0x32, 0x38, 0x44); }
-inline QColor highlightBg() { return QColor(0x7a, 0x62, 0x00); }
-inline QColor headerBg() { return QColor(0x38, 0x3f, 0x49); }
+// ---- colours (from the active theme) --------------------------------------
+
+inline QColor linkColor() { return QColor(activeTheme().link); }
+inline QColor mutedColor() { return QColor(activeTheme().muted); }
+inline QColor accentColor() { return QColor(activeTheme().accent); }
+inline QColor borderColor() { return QColor(activeTheme().border); }
+inline QColor canvasBg() { return QColor(activeTheme().canvas); } // area around the page
+inline QColor pageBg() { return QColor(activeTheme().page); } // writing surface
+inline QColor codeBg() { return QColor(activeTheme().inlineCode); }
+inline QColor blockBg() { return QColor(activeTheme().codeBlock); }
+inline QColor quoteBg() { return QColor(activeTheme().quote); }
+inline QColor highlightBg() { return QColor(activeTheme().highlight); }
+inline QColor headerBg() { return QColor(activeTheme().inlineCode); }
 
 // ---- list markers ---------------------------------------------------------
 // Qt has no outlined-square style. We use "undefined" (Qt draws nothing)
@@ -83,10 +86,13 @@ inline QTextListFormat::Style bulletStyle(int level, bool task = false)
     return styles[qMax(0, level) % 4];
 }
 
+// ---- base formats ---------------------------------------------------------
+
 inline QStringList monoFamilies()
 {
     return { QStringLiteral("DejaVu Sans Mono"), QStringLiteral("Ubuntu Mono"), QStringLiteral("Monospace") };
 }
+
 inline QString baseFamily() { return QGuiApplication::font().family(); }
 
 inline qreal headingScale(int level)
@@ -160,7 +166,7 @@ inline void clearLink(QTextCharFormat& f)
     f.setAnchor(false);
     f.setAnchorHref(QString());
     f.setProperty(PropLinkKind, QVariant(LinkInline));
-    f.setForeground(QGuiApplication::palette().color(QPalette::Text));
+    f.setForeground(QBrush(Qt::NoBrush)); // follow the theme's text colour
     f.setFontUnderline(false);
 }
 
@@ -208,8 +214,8 @@ inline void restyleBlock(QTextBlock b)
     const bool code = bf.boolProperty(PropCodeBlock);
     const bool rule = bf.boolProperty(PropIsRule);
     const bool foot = bf.hasProperty(PropFootnoteDef);
-    qreal top = 0, bottom = 8, left = q * kQuoteIndent;
 
+    qreal top = 0, bottom = 8, left = q * kQuoteIndent;
     if (code) {
         const QTextBlock n = b.next();
         bottom = (n.isValid() && n.blockFormat().boolProperty(PropCodeBlock)) ? 0 : 8;
@@ -271,6 +277,7 @@ inline QTextTable* createTable(QTextCursor& cur, int rows, int cols, const QStri
     tf.setCellSpacing(0);
     tf.setHeaderRowCount(1);
     QTextTable* t = cur.insertTable(rows, cols, tf);
+
     for (int r = 0; r < rows; ++r) {
         for (int c = 0; c < cols; ++c) {
             QTextTableCell cell = t->cellAt(r, c);
@@ -278,6 +285,7 @@ inline QTextTable* createTable(QTextCursor& cur, int rows, int cols, const QStri
             if (r == 0)
                 cf.setBackground(headerBg());
             cell.setFormat(cf);
+
             QTextCursor cc = cell.firstCursorPosition();
             QTextBlockFormat bf;
             const QString a = aligns.value(c);

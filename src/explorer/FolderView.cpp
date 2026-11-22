@@ -1,11 +1,14 @@
 #include "FolderView.h"
+#include "theme/Theme.h"
 #include "ui/Icons.h"
+#include <QAction>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
+#include <QMenu>
 #include <QPainter>
 #include <QPushButton>
 #include <QRegularExpression>
@@ -91,6 +94,7 @@ public:
 
     void paint(QPainter* p, const QStyleOptionViewItem& option, const QModelIndex& index) const override
     {
+        const Theme& theme = activeTheme();
         const bool hover = option.state & QStyle::State_MouseOver;
         const bool selected = option.state & QStyle::State_Selected;
         const bool folder = index.data(FolderRole).toBool();
@@ -98,8 +102,8 @@ public:
 
         p->save();
         p->setRenderHint(QPainter::Antialiasing);
-        p->setPen(QPen(selected ? QColor(0x4f, 0x8c, 0xff) : QColor(0x39, 0x3f, 0x49), 1));
-        p->setBrush(hover ? QColor(0x31, 0x37, 0x41) : QColor(0x24, 0x28, 0x2f));
+        p->setPen(QPen(QColor(selected ? theme.accent : theme.border), 1));
+        p->setBrush(QColor(hover ? theme.hover : theme.page));
         p->drawRoundedRect(card, 10, 10);
 
         const QRect inner = option.rect.adjusted(14, 14, -14, -12);
@@ -109,7 +113,7 @@ public:
         QFont titleFont = option.font;
         titleFont.setBold(true);
         p->setFont(titleFont);
-        p->setPen(QColor(0xe6, 0xea, 0xf0));
+        p->setPen(QColor(theme.text));
         const QRect titleRect(iconRect.right() + 9, inner.top(), inner.right() - iconRect.right() - 9, 22);
         p->drawText(titleRect, Qt::AlignVCenter | Qt::AlignLeft,
             QFontMetrics(titleFont).elidedText(index.data(Qt::DisplayRole).toString(), Qt::ElideRight, titleRect.width()));
@@ -117,7 +121,7 @@ public:
         QFont bodyFont = option.font;
         bodyFont.setPointSizeF(qMax<qreal>(7.5, option.font.pointSizeF() - 1));
         p->setFont(bodyFont);
-        p->setPen(QColor(0x97, 0xa0, 0xac));
+        p->setPen(QColor(theme.muted));
         const QRect body = inner.adjusted(0, 34, 0, 0);
         p->setClipRect(body);
         p->drawText(body, Qt::AlignTop | Qt::AlignLeft | Qt::TextWordWrap, index.data(PreviewRole).toString());
@@ -156,6 +160,7 @@ FolderView::FolderView(QWidget* parent)
     m_cards->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     m_cards->setItemDelegate(new CardDelegate(m_cards));
     m_cards->setMouseTracking(true);
+    m_cards->setContextMenuPolicy(Qt::CustomContextMenu);
     m_cards->viewport()->setCursor(Qt::PointingHandCursor);
 
     m_empty = new QLabel(tr("This folder is empty.\nCreate a note or a folder to get started."), this);
@@ -180,12 +185,28 @@ FolderView::FolderView(QWidget* parent)
     auto open = [this](QListWidgetItem* item) { emit openRequested(item->data(PathRole).toString()); };
     connect(m_cards, &QListWidget::itemClicked, this, open);
     connect(m_cards, &QListWidget::itemActivated, this, open);
+    connect(m_cards, &QListWidget::customContextMenuRequested, this, &FolderView::showContextMenu);
     connect(newNote, &QPushButton::clicked, this, [this] { emit newNoteRequested(m_directory); });
     connect(newFolder, &QPushButton::clicked, this, [this] { emit newFolderRequested(m_directory); });
     connect(m_breadcrumb, &QLabel::linkActivated, this, [this](const QString& link) {
         emit openRequested(m_crumbs.value(link.toInt()));
     });
     connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this, &FolderView::refresh);
+
+    // F2 and Delete on the selected card.
+    auto addShortcut = [this](const QKeySequence& keys, auto signal) {
+        auto* action = new QAction(m_cards);
+        action->setShortcut(keys);
+        action->setShortcutContext(Qt::WidgetShortcut);
+        connect(action, &QAction::triggered, this, [this, signal] {
+            const auto selected = m_cards->selectedItems();
+            if (!selected.isEmpty())
+                emit(this->*signal)(selected.first()->data(PathRole).toString());
+        });
+        m_cards->addAction(action);
+    };
+    addShortcut(QKeySequence(Qt::Key_F2), &FolderView::renameRequested);
+    addShortcut(QKeySequence(QKeySequence::Delete), &FolderView::deleteRequested);
 }
 
 void FolderView::showFolder(const QString& directory)
@@ -195,6 +216,12 @@ void FolderView::showFolder(const QString& directory)
     m_directory = directory;
     m_watcher.addPath(directory);
     refresh();
+}
+
+void FolderView::applyTheme()
+{
+    if (!m_directory.isEmpty() && QFileInfo::exists(m_directory))
+        refresh();
 }
 
 void FolderView::refresh()
@@ -231,9 +258,46 @@ void FolderView::updateBreadcrumb()
             m_crumbs << path;
         }
     }
+    const QString color = QColor(activeTheme().accent).name();
     QStringList links;
     for (int i = 0; i < names.size(); ++i)
-        links << QStringLiteral("<a href=\"%1\" style=\"color:#8ab4ff; text-decoration:none\">%2</a>")
-                     .arg(QString::number(i), names[i].toHtmlEscaped());
+        links << QStringLiteral("<a href=\"%1\" style=\"color:%2; text-decoration:none\">%3</a>")
+                     .arg(QString::number(i), color, names[i].toHtmlEscaped());
     m_breadcrumb->setText(links.join(QStringLiteral("&nbsp;&nbsp;›&nbsp;&nbsp;")));
+}
+
+void FolderView::showContextMenu(const QPoint& pos)
+{
+    const QListWidgetItem* item = m_cards->itemAt(pos);
+    const QString path = item ? item->data(PathRole).toString() : QString();
+
+    QMenu menu(this);
+    QAction* open = nullptr;
+    QAction* rename = nullptr;
+    QAction* remove = nullptr;
+    QAction* newNote = nullptr;
+    QAction* newFolder = nullptr;
+    if (item) {
+        open = menu.addAction(tr("Open"));
+        menu.addSeparator();
+        rename = menu.addAction(makeIcon(Glyph::Rename), tr("Rename…\tF2"));
+        remove = menu.addAction(makeIcon(Glyph::Trash), tr("Delete…\tDel"));
+    } else {
+        newNote = menu.addAction(makeIcon(Glyph::NewNote), tr("New note…"));
+        newFolder = menu.addAction(makeIcon(Glyph::NewFolder), tr("New folder…"));
+    }
+
+    QAction* chosen = menu.exec(m_cards->viewport()->mapToGlobal(pos));
+    if (!chosen)
+        return;
+    if (chosen == open)
+        emit openRequested(path);
+    else if (chosen == rename)
+        emit renameRequested(path);
+    else if (chosen == remove)
+        emit deleteRequested(path);
+    else if (chosen == newNote)
+        emit newNoteRequested(m_directory);
+    else if (chosen == newFolder)
+        emit newFolderRequested(m_directory);
 }

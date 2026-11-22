@@ -1,12 +1,14 @@
 #pragma once
 #include <QIcon>
 
-// Vector icons drawn in code, so no image files or SVG module are needed.
+// Vector icons drawn in code. They follow the active theme's colours.
 enum class Glyph {
     Sidebar,
     NewNote,
     NewFolder,
     Save,
+    Rename,
+    Trash,
     Bold,
     Italic,
     Strike,
@@ -24,6 +26,7 @@ enum class Glyph {
     Table,
     Rule,
     Source,
+    Theme,
     Folder,
     Note
 };

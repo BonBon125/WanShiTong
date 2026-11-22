@@ -3,7 +3,8 @@ add_library(mdnote_core STATIC
     markdown/MarkdownParser.h
     markdown/MarkdownParser.cpp
     markdown/MarkdownWriter.h
-    markdown/MarkdownWriter.cpp)
+    markdown/MarkdownWriter.cpp
+    theme/Theme.h)
 target_include_directories(mdnote_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(mdnote_core PUBLIC Qt6::Gui)
 target_compile_options(mdnote_core PRIVATE -Wall -Wextra)
@@ -22,8 +23,8 @@ add_executable(mdnote
     explorer/FileExplorer.cpp
     explorer/FolderView.h
     explorer/FolderView.cpp
-    theme/DarkTheme.h
-    theme/DarkTheme.cpp
+    theme/Themes.h
+    theme/Themes.cpp
     ui/Icons.h
     ui/Icons.cpp)
 target_link_libraries(mdnote PRIVATE mdnote_core Qt6::Widgets)

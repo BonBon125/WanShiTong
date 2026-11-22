@@ -1,4 +1,5 @@
 #include "Icons.h"
+#include "theme/Theme.h"
 #include <QGuiApplication>
 #include <QIconEngine>
 #include <QPainter>
@@ -62,6 +63,17 @@ void drawGlyph(QPainter& p, Glyph glyph, const QColor& color)
         p.drawPolygon(QPolygonF({ { 4, 4 }, { 16, 4 }, { 20, 8 }, { 20, 20 }, { 4, 20 } }));
         p.drawRect(QRectF(8, 13, 8, 7));
         lines(p, 8, 14, { 8 });
+        break;
+    case Glyph::Rename:
+        p.drawPolygon(QPolygonF({ { 4, 20 }, { 5, 15.5 }, { 16, 4.5 }, { 19.5, 8 }, { 8.5, 19 } }));
+        p.drawLine(QPointF(13.5, 7), QPointF(17, 10.5));
+        break;
+    case Glyph::Trash:
+        lines(p, 4, 20, { 7 });
+        p.drawPolyline(QPolygonF({ { 6, 7 }, { 7, 20 }, { 17, 20 }, { 18, 7 } }));
+        p.drawPolyline(QPolygonF({ { 9, 7 }, { 9, 4 }, { 15, 4 }, { 15, 7 } }));
+        p.drawLine(QPointF(10, 11), QPointF(10, 16));
+        p.drawLine(QPointF(14, 11), QPointF(14, 16));
         break;
     case Glyph::Bold:
         drawText(p, QRectF(0, 0, 24, 24), QStringLiteral("B"), 18, true);
@@ -145,6 +157,14 @@ void drawGlyph(QPainter& p, Glyph glyph, const QColor& color)
         p.drawLine(QPointF(17, 7), QPointF(17, 17));
         p.drawPolyline(QPolygonF({ { 14, 14 }, { 17, 17 }, { 20, 14 } }));
         break;
+    case Glyph::Theme:
+        p.drawEllipse(QPointF(12, 12), 9, 9);
+        p.setBrush(color);
+        p.drawEllipse(QPointF(8, 10), 1.2, 1.2);
+        p.drawEllipse(QPointF(12, 7.5), 1.2, 1.2);
+        p.drawEllipse(QPointF(16, 10), 1.2, 1.2);
+        p.drawEllipse(QPointF(14, 16), 2.2, 2.2);
+        break;
     }
 }
 
@@ -157,11 +177,12 @@ public:
 
     void paint(QPainter* p, const QRect& rect, QIcon::Mode mode, QIcon::State state) override
     {
-        QColor color(0xc5, 0xcc, 0xd6);
+        const Theme& theme = activeTheme();
+        QColor color(theme.text);
         if (mode == QIcon::Disabled)
-            color = QColor(0x55, 0x5c, 0x67);
+            color = mixColors(QColor(theme.muted), QColor(theme.window), 0.45);
         else if (state == QIcon::On)
-            color = QColor(0x8a, 0xb4, 0xff);
+            color = QColor(theme.accent);
 
         const qreal side = qMin(rect.width(), rect.height());
         p->save();

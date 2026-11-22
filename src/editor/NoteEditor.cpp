@@ -3,8 +3,8 @@
 #include "markdown/MarkdownParser.h"
 #include "markdown/MarkdownWriter.h"
 #include "markdown/MdFormat.h"
-
 #include <QAbstractTextDocumentLayout>
+#include <QApplication>
 #include <QCoreApplication>
 #include <QDesktopServices>
 #include <QInputDialog>
@@ -14,15 +14,33 @@
 #include <QScrollBar>
 #include <QSet>
 #include <QTextDocumentFragment>
+#include <QTextFrame>
 #include <QTextTable>
 #include <QVariantMap>
 #include <QWheelEvent>
+#include <functional>
 
 using namespace md;
+
 namespace {
 constexpr int kPageWidth = 760; // width of the writing surface in pixels
 constexpr int kPageMinGutter = 12; // minimum background visible on each side
 constexpr int kPageTopGap = 16; // background visible above the page
+
+// The colour properties a piece of text should have under the active theme.
+QTextCharFormat themeColors(const QTextCharFormat& f)
+{
+    QTextCharFormat c;
+    if (f.boolProperty(PropInlineCode))
+        c.setBackground(codeBg());
+    else if (f.boolProperty(PropHighlight))
+        c.setBackground(highlightBg());
+    if ((f.isAnchor() && !f.anchorHref().isEmpty()) || f.hasProperty(PropFootnoteRef))
+        c.setForeground(linkColor());
+    else if (f.hasProperty(QTextFormat::ForegroundBrush))
+        c.setForeground(QBrush(Qt::NoBrush));
+    return c;
+}
 } // namespace
 
 NoteEditor::NoteEditor(QWidget* parent)
@@ -30,22 +48,20 @@ NoteEditor::NoteEditor(QWidget* parent)
 {
     setAcceptRichText(true);
     setFrameShape(QFrame::NoFrame);
-    QPalette pal = palette();
-    pal.setColor(QPalette::Window, canvasBg());
-    pal.setColor(QPalette::Base, pageBg());
-    setPalette(pal);
+
+    applyPalette();
     setBackgroundRole(QPalette::Window);
     setAutoFillBackground(true);
     setLineWrapMode(QTextEdit::WidgetWidth);
     setWordWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
     // Always on, so the page doesn't shift when a note becomes scrollable.
     setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+
     QFont f = font();
     f.setPointSizeF(kBasePt);
     document()->setDefaultFont(f);
     document()->setDocumentMargin(28);
-    new CodeHighlighter(document());
-
+    m_highlighter = new CodeHighlighter(document());
     connect(this, &QTextEdit::cursorPositionChanged, this, &NoteEditor::stateChanged);
     connect(this, &QTextEdit::currentCharFormatChanged, this, &NoteEditor::stateChanged);
     importMarkdown(QString());
@@ -81,6 +97,182 @@ QVector<QTextBlock> NoteEditor::selectedBlocks() const
             break;
     }
     return v;
+}
+
+// ---------------------------------------------------------------- theme
+
+void NoteEditor::applyPalette()
+{
+    QPalette pal = QApplication::palette();
+    pal.setColor(QPalette::Window, canvasBg());
+    pal.setColor(QPalette::Base, pageBg());
+    setPalette(pal);
+}
+
+void NoteEditor::applyTheme()
+{
+    applyPalette();
+    recolorDocument();
+    m_highlighter->applyTheme();
+    viewport()->update();
+}
+
+// Colours are stored in the document's formats, so they must be rewritten.
+void NoteEditor::recolorDocument()
+{
+    QTextDocument* doc = document();
+    const bool wasModified = doc->isModified();
+    // Colour changes must not appear in the undo history (this clears it).
+    doc->setUndoRedoEnabled(false);
+
+    struct Change {
+        int position;
+        int length;
+        QTextCharFormat format;
+    };
+    QVector<Change> changes;
+    for (QTextBlock b = doc->begin(); b.isValid(); b = b.next()) {
+        for (auto it = b.begin(); !it.atEnd(); ++it) {
+            const QTextFragment fr = it.fragment();
+            if (!fr.isValid())
+                continue;
+            const QTextCharFormat f = fr.charFormat();
+            if (f.isImageFormat()) { // redraw "missing image" placeholders
+                const QTextImageFormat im = f.toImageFormat();
+                ensureImageResource(doc, im.name(), im.stringProperty(PropAlt));
+            }
+            const QTextCharFormat colors = themeColors(f);
+            if (!colors.properties().isEmpty())
+                changes.push_back({ fr.position(), fr.length(), colors });
+        }
+    }
+
+    QTextCursor edit(doc);
+    edit.beginEditBlock();
+    for (const Change& change : std::as_const(changes)) {
+        QTextCursor c(doc);
+        c.setPosition(change.position);
+        c.setPosition(change.position + change.length, QTextCursor::KeepAnchor);
+        c.mergeCharFormat(change.format);
+    }
+    for (QTextBlock b = doc->begin(); b.isValid(); b = b.next()) {
+        const QTextCharFormat colors = themeColors(b.charFormat());
+        if (!colors.properties().isEmpty())
+            QTextCursor(b).mergeBlockCharFormat(colors);
+    }
+
+    std::function<void(QTextFrame*)> recolorTables = [&](QTextFrame* frame) {
+        for (QTextFrame* child : frame->childFrames()) {
+            if (auto* table = qobject_cast<QTextTable*>(child)) {
+                QTextTableFormat tf = table->format();
+                tf.setBorderBrush(borderColor());
+                table->setFormat(tf);
+                for (int col = 0; col < table->columns(); ++col) {
+                    QTextTableCell cell = table->cellAt(0, col);
+                    QTextTableCellFormat cf = cell.format().toTableCellFormat();
+                    cf.setBackground(headerBg());
+                    cell.setFormat(cf);
+                }
+            }
+            recolorTables(child);
+        }
+    };
+    recolorTables(doc->rootFrame());
+    restyleAll(doc); // code block and quote backgrounds
+    edit.endEditBlock();
+
+    doc->setUndoRedoEnabled(true);
+    doc->setModified(wasModified);
+}
+
+// ---------------------------------------------------------------- page layout
+
+void NoteEditor::updatePageGeometry()
+{
+    const int spare = width() - verticalScrollBar()->sizeHint().width() - kPageWidth;
+    const int left = qMax(kPageMinGutter, spare / 2);
+    const int right = qMax(kPageMinGutter, spare - spare / 2);
+    const QMargins margins(left, kPageTopGap, right, 0);
+    if (margins != viewportMargins())
+        setViewportMargins(margins);
+}
+
+void NoteEditor::resizeEvent(QResizeEvent* e)
+{
+    QTextEdit::resizeEvent(e);
+    updatePageGeometry();
+}
+
+bool NoteEditor::event(QEvent* e)
+{
+    // Let the mouse wheel scroll the note when hovering over the side gutters.
+    if (e->type() == QEvent::Wheel) {
+        const auto* wheel = static_cast<QWheelEvent*>(e);
+        if (!viewport()->geometry().contains(wheel->position().toPoint())) {
+            QCoreApplication::sendEvent(verticalScrollBar(), e);
+            return true;
+        }
+    }
+    return QTextEdit::event(e);
+}
+
+// ---------------------------------------------------------------- auto bullets
+
+// Called when Space is pressed. Returns true if "- " was turned into a bullet.
+bool NoteEditor::tryAutoBullet()
+{
+    QTextCursor c = textCursor();
+    const QTextBlock b = c.block();
+    const QTextBlockFormat bf = b.blockFormat();
+
+    if (c.hasSelection() || c.currentTable() || c.positionInBlock() != 1
+        || !b.text().startsWith(QLatin1Char('-')))
+        return false;
+    if (bf.boolProperty(PropCodeBlock) || bf.boolProperty(PropIsRule) || bf.headingLevel() > 0
+        || bf.hasProperty(PropFootnoteDef) || c.charFormat().boolProperty(PropInlineCode))
+        return false;
+
+    QTextList* list = b.textList();
+    if (list && list->format().indent() >= 8)
+        return false;
+
+    // Typed outside the edit block below, so one Undo brings back the literal "- ".
+    c.insertText(QStringLiteral(" "));
+
+    c.beginEditBlock();
+    c.setPosition(b.position());
+    c.setPosition(b.position() + 2, QTextCursor::KeepAnchor);
+    c.removeSelectedText();
+    setTextCursor(c);
+
+    if (list) {
+        const bool ordered = !isBulletStyle(list->format().style());
+        shiftListItem(+1);
+        if (ordered) // a "-" under a numbered item should produce a bullet
+            toggleList(QTextListFormat::ListDisc, false);
+    } else {
+        toggleList(QTextListFormat::ListDisc, false);
+    }
+    c.endEditBlock();
+    return true;
+}
+
+void NoteEditor::drawHollowSquare(QPainter& p, const QTextBlock& b) const
+{
+    // Same size and position that Qt uses for its filled square.
+    const QFont font = b.charFormat().font().resolve(document()->defaultFont());
+    const QFontMetrics fm(font, viewport());
+    const int side = fm.lineSpacing() / 3;
+    const QRect start = cursorRect(QTextCursor(b));
+    const QRectF square(start.left() - fm.horizontalAdvance(QLatin1Char(' ')) - side,
+        start.top() + fm.height() / 2 - side / 2, side, side);
+
+    p.save();
+    p.setRenderHint(QPainter::Antialiasing, false);
+    p.setPen(QPen(palette().color(QPalette::Text), 1));
+    p.setBrush(Qt::NoBrush);
+    p.drawRect(square.adjusted(0, 0, -1, -1));
+    p.restore();
 }
 
 // ---------------------------------------------------------------- inline
@@ -484,7 +676,6 @@ void NoteEditor::insertFootnote()
         QLineEdit::Normal, QString(), &ok);
     if (!ok)
         return;
-
     int n = 1;
     QSet<QString> used;
     for (QTextBlock b = document()->begin(); b.isValid(); b = b.next())
@@ -599,6 +790,7 @@ void NoteEditor::keyPressEvent(QKeyEvent* e)
     const auto shortcutMods = Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier;
     if (e->text() == QLatin1String(" ") && !(e->modifiers() & shortcutMods) && tryAutoBullet())
         return;
+
     switch (e->key()) {
     case Qt::Key_Tab:
         if (e->modifiers() & Qt::ControlModifier)
@@ -717,7 +909,6 @@ void NoteEditor::mouseReleaseEvent(QMouseEvent* e)
 void NoteEditor::paintEvent(QPaintEvent* ev)
 {
     QTextEdit::paintEvent(ev);
-
     QPainter p(viewport());
     const QPointF off(horizontalScrollBar()->value(), verticalScrollBar()->value());
     const qreal margin = document()->documentMargin();
@@ -731,12 +922,10 @@ void NoteEditor::paintEvent(QPaintEvent* ev)
         if (const QTextList* list = b.textList(); list && list->format().style() == kHollowSquare
             && bf.marker() == QTextBlockFormat::MarkerType::NoMarker)
             drawHollowSquare(p, b);
-
         const int q = bf.intProperty(PropQuoteLevel);
         for (int k = 0; k < q; ++k)
             p.fillRect(QRectF(margin + 4 + k * kQuoteIndent - off.x(), r.top() - 3, 3, r.height() + 6),
-                QColor(0x4c, 0x7c, 0xc9));
-
+                accentColor());
         if (bf.boolProperty(PropIsRule)) {
             p.setPen(QPen(mutedColor(), 1));
             const qreal y = r.center().y();
@@ -772,7 +961,6 @@ void NoteEditor::insertFromMimeData(const QMimeData* src)
     QTextDocument tmp;
     tmp.setBaseUrl(document()->baseUrl());
     MarkdownParser::parse(src->text(), &tmp);
-
     QVariantMap refs = document()->property("md.refs").toMap();
     const QVariantMap extra = tmp.property("md.refs").toMap();
     for (auto it = extra.begin(); it != extra.end(); ++it)
@@ -783,94 +971,4 @@ void NoteEditor::insertFromMimeData(const QMimeData* src)
     c.insertFragment(QTextDocumentFragment(&tmp));
     setTextCursor(c);
     ensureCursorVisible();
-}
-
-// ---------------------------------------------------------------- page layout
-
-void NoteEditor::updatePageGeometry()
-{
-    const int spare = width() - verticalScrollBar()->sizeHint().width() - kPageWidth;
-    const int left = qMax(kPageMinGutter, spare / 2);
-    const int right = qMax(kPageMinGutter, spare - spare / 2);
-    const QMargins margins(left, kPageTopGap, right, 0);
-    if (margins != viewportMargins())
-        setViewportMargins(margins);
-}
-
-void NoteEditor::resizeEvent(QResizeEvent* e)
-{
-    QTextEdit::resizeEvent(e);
-    updatePageGeometry();
-}
-
-bool NoteEditor::event(QEvent* e)
-{
-    // Let the mouse wheel scroll the note when hovering over the side gutters.
-    if (e->type() == QEvent::Wheel) {
-        const auto* wheel = static_cast<QWheelEvent*>(e);
-        if (!viewport()->geometry().contains(wheel->position().toPoint())) {
-            QCoreApplication::sendEvent(verticalScrollBar(), e);
-            return true;
-        }
-    }
-    return QTextEdit::event(e);
-}
-
-// ---------------------------------------------------------------- auto bullets
-
-// Called when Space is pressed. Returns true if "- " was turned into a bullet.
-bool NoteEditor::tryAutoBullet()
-{
-    QTextCursor c = textCursor();
-    const QTextBlock b = c.block();
-    const QTextBlockFormat bf = b.blockFormat();
-
-    if (c.hasSelection() || c.currentTable() || c.positionInBlock() != 1
-        || !b.text().startsWith(QLatin1Char('-')))
-        return false;
-    if (bf.boolProperty(PropCodeBlock) || bf.boolProperty(PropIsRule) || bf.headingLevel() > 0
-        || bf.hasProperty(PropFootnoteDef) || c.charFormat().boolProperty(PropInlineCode))
-        return false;
-
-    QTextList* list = b.textList();
-    if (list && list->format().indent() >= 8)
-        return false;
-
-    // Typed outside the edit block below, so one Undo brings back the literal "- ".
-    c.insertText(QStringLiteral(" "));
-
-    c.beginEditBlock();
-    c.setPosition(b.position());
-    c.setPosition(b.position() + 2, QTextCursor::KeepAnchor);
-    c.removeSelectedText();
-    setTextCursor(c);
-
-    if (list) {
-        const bool ordered = !isBulletStyle(list->format().style());
-        shiftListItem(+1);
-        if (ordered) // a "-" under a numbered item should produce a bullet
-            toggleList(QTextListFormat::ListDisc, false);
-    } else {
-        toggleList(QTextListFormat::ListDisc, false);
-    }
-    c.endEditBlock();
-    return true;
-}
-
-void NoteEditor::drawHollowSquare(QPainter& p, const QTextBlock& b) const
-{
-    // Same size and position that Qt uses for its filled square.
-    const QFont font = b.charFormat().font().resolve(document()->defaultFont());
-    const QFontMetrics fm(font, viewport());
-    const int side = fm.lineSpacing() / 3;
-    const QRect start = cursorRect(QTextCursor(b));
-    const QRectF square(start.left() - fm.horizontalAdvance(QLatin1Char(' ')) - side,
-        start.top() + fm.height() / 2 - side / 2, side, side);
-
-    p.save();
-    p.setRenderHint(QPainter::Antialiasing, false);
-    p.setPen(QPen(palette().color(QPalette::Text), 1));
-    p.setBrush(Qt::NoBrush);
-    p.drawRect(square.adjusted(0, 0, -1, -1));
-    p.restore();
 }

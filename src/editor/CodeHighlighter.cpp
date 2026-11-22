@@ -1,11 +1,9 @@
 #include "CodeHighlighter.h"
 #include "markdown/MdFormat.h"
-
 #include <QHash>
 #include <QSet>
 
 namespace {
-
 struct Lang {
     QSet<QString> kw;
     QString line;
@@ -36,6 +34,7 @@ const Lang* langFor(const QString& name)
         const Lang java = make("abstract boolean break byte case catch char class const continue default do double else enum extends final finally float for if implements import instanceof int interface long new null package private protected public return short static super switch this throw throws true false try void volatile while", "//", true, false);
         const Lang go = make("break case chan const continue default defer else fallthrough for func go goto if import interface map package range return select struct switch type var true false nil", "//", true, true);
         const Lang json = make("true false null", "", false, false);
+
         for (const char* k : { "c", "h", "cpp", "c++", "cc", "hpp", "cxx" })
             h.insert(QString::fromLatin1(k), cpp);
         for (const char* k : { "js", "javascript", "ts", "typescript", "jsx", "tsx" })
@@ -55,17 +54,27 @@ const Lang* langFor(const QString& name)
     const auto it = langs.constFind(name.toLower());
     return it == langs.constEnd() ? nullptr : &*it;
 }
-
 } // namespace
 
 CodeHighlighter::CodeHighlighter(QTextDocument* doc)
     : QSyntaxHighlighter(doc)
 {
-    m_keyword.setForeground(QColor(0xff, 0x7b, 0x72));
-    m_string.setForeground(QColor(0xa5, 0xd6, 0xff));
-    m_number.setForeground(QColor(0x79, 0xc0, 0xff));
-    m_comment.setForeground(QColor(0x8b, 0x94, 0x9e));
+    loadColors();
+}
+
+void CodeHighlighter::loadColors()
+{
+    m_keyword.setForeground(QColor(activeTheme().keyword));
+    m_string.setForeground(QColor(activeTheme().string));
+    m_number.setForeground(QColor(activeTheme().number));
+    m_comment.setForeground(QColor(activeTheme().comment));
     m_comment.setFontItalic(true);
+}
+
+void CodeHighlighter::applyTheme()
+{
+    loadColors();
+    rehighlight();
 }
 
 void CodeHighlighter::highlightBlock(const QString& text)
@@ -81,6 +90,7 @@ void CodeHighlighter::highlightBlock(const QString& text)
     const int n = text.size();
     int i = 0;
     bool inBlock = lang->block && previousBlockState() == 1;
+
     while (i < n) {
         if (inBlock) {
             const int e = text.indexOf(QLatin1String("*/"), i);

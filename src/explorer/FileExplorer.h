@@ -18,7 +18,7 @@ signals:
     void newNoteRequested(const QString& directory);
     void newFolderRequested(const QString& directory);
     void renameRequested(const QString& path);
-    void trashRequested(const QString& path);
+    void deleteRequested(const QString& path);
 
 private:
     void showContextMenu(const QPoint& pos);
