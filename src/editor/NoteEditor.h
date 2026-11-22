@@ -51,6 +51,8 @@ signals:
     void stateChanged();
 
 protected:
+    bool event(QEvent* e) override;
+    void resizeEvent(QResizeEvent* e) override;
     void keyPressEvent(QKeyEvent* e) override;
     void mousePressEvent(QMouseEvent* e) override;
     void mouseReleaseEvent(QMouseEvent* e) override;
@@ -62,6 +64,9 @@ private:
     QVector<QTextBlock> selectedBlocks() const;
     void insertStyledLink(int kind, const QString& url, const QString& ref, const QString& label);
     void nextCell(bool forward);
+    bool tryAutoBullet();
+    void updatePageGeometry();
+    void drawHollowSquare(QPainter& p, const QTextBlock& b) const;
 
     md::WriterOptions m_opts;
     QString m_lastLang;
