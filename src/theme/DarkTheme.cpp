@@ -33,5 +33,5 @@ void applyDarkTheme(QApplication& app)
     app.setStyleSheet(QStringLiteral(
         "QToolTip { color:#dde1e6; background:#2b2f36; border:1px solid #444c56; }"
         "QToolBar { border:0; spacing:3px; padding:2px; }"
-        "QTextEdit, QPlainTextEdit { border:0; }"));
+        "QPlainTextEdit { border:0; }"));
 }

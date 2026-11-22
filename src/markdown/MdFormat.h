@@ -48,13 +48,40 @@ constexpr qreal kBasePt = 12.0;
 constexpr int kQuoteIndent = 22;
 
 inline QColor linkColor() { return QColor(0x6c, 0xb6, 0xff); }
-inline QColor mutedColor() { return QColor(0x76, 0x83, 0x90); }
-inline QColor borderColor() { return QColor(0x44, 0x4c, 0x56); }
-inline QColor codeBg() { return QColor(0x2d, 0x33, 0x3b); }
+inline QColor mutedColor() { return QColor(0x8b, 0x95, 0xa1); }
+inline QColor borderColor() { return QColor(0x56, 0x5f, 0x6b); }
+inline QColor canvasBg() { return QColor(0x17, 0x19, 0x1d); } // area around the page
+inline QColor pageBg() { return QColor(0x2a, 0x2e, 0x35); } // writing surface
+inline QColor codeBg() { return QColor(0x3d, 0x44, 0x4e); }
 inline QColor blockBg() { return QColor(0x1f, 0x23, 0x29); }
-inline QColor quoteBg() { return QColor(0x26, 0x2b, 0x33); }
+inline QColor quoteBg() { return QColor(0x32, 0x38, 0x44); }
 inline QColor highlightBg() { return QColor(0x7a, 0x62, 0x00); }
-inline QColor headerBg() { return QColor(0x30, 0x36, 0x3d); }
+inline QColor headerBg() { return QColor(0x38, 0x3f, 0x49); }
+
+// ---- list markers ---------------------------------------------------------
+// Qt has no outlined-square style. We use "undefined" (Qt draws nothing)
+// and paint the square ourselves in NoteEditor::paintEvent.
+constexpr QTextListFormat::Style kHollowSquare = QTextListFormat::ListStyleUndefined;
+
+inline bool isBulletStyle(QTextListFormat::Style s)
+{
+    return s == QTextListFormat::ListDisc || s == QTextListFormat::ListCircle
+        || s == QTextListFormat::ListSquare || s == kHollowSquare;
+}
+
+// level is zero-based. Task items always use Disc, as Qt draws a checkbox instead.
+inline QTextListFormat::Style bulletStyle(int level, bool task = false)
+{
+    if (task)
+        return QTextListFormat::ListDisc;
+    static const QTextListFormat::Style styles[] = {
+        QTextListFormat::ListDisc, // filled bullet
+        QTextListFormat::ListCircle, // outlined bullet
+        QTextListFormat::ListSquare, // filled square
+        kHollowSquare // outlined square
+    };
+    return styles[qMax(0, level) % 4];
+}
 
 inline QStringList monoFamilies()
 {
