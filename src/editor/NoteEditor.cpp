@@ -13,16 +13,38 @@
 #include <QScrollBar>
 #include <QSet>
 #include <QTextDocumentFragment>
+#include <QTextLayout>
+#include <QTextList>
 #include <QTextTable>
 #include <QVariantMap>
 
 using namespace md;
+namespace {
+constexpr int kPageWidth = 760; // width of the writing area in pixels
+constexpr int kPageGap = 16; // minimum background visible around the page
+const QColor kDeskColor(0x16, 0x18, 0x1c); // application background
+const QColor kPageColor(0x24, 0x28, 0x2f); // lighter writing area
+}
 
 NoteEditor::NoteEditor(QWidget* parent)
     : QTextEdit(parent)
 {
     setAcceptRichText(true);
     setFrameShape(QFrame::NoFrame);
+    // The viewport is the "page"; the area around it is the darker background.
+    QPalette pal = palette();
+    pal.setColor(QPalette::Window, kDeskColor);
+    pal.setColor(QPalette::Base, kPageColor);
+    setPalette(pal);
+    setBackgroundRole(QPalette::Window);
+    setAutoFillBackground(true);
+    viewport()->setBackgroundRole(QPalette::Base);
+    viewport()->setAutoFillBackground(true);
+
+    setLineWrapMode(QTextEdit::WidgetWidth);
+    setWordWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere); // also wraps long URLs
+    // Always shown, so the page doesn't change width when a note starts scrolling.
+    setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
     QFont f = font();
     f.setPointSizeF(kBasePt);
     document()->setDefaultFont(f);
@@ -190,7 +212,9 @@ void NoteEditor::toggleList(QTextListFormat::Style style, bool task)
 
     QTextList* cur = blocks.first().textList();
     const bool curTask = blocks.first().blockFormat().marker() != QTextBlockFormat::MarkerType::NoMarker;
-    const bool same = cur && cur->format().style() == style && curTask == task;
+    const bool ordered = style == QTextListFormat::ListDecimal;
+    const bool same = cur && curTask == task
+        && (ordered ? cur->format().style() == style : isBulletStyle(cur->format().style()));
 
     if (same) {
         for (QTextBlock b : blocks) {
@@ -206,8 +230,8 @@ void NoteEditor::toggleList(QTextListFormat::Style style, bool task)
     } else {
         QTextList* list = nullptr;
         QTextListFormat lf;
-        lf.setStyle(style);
         lf.setIndent(cur ? cur->format().indent() : 1);
+        lf.setStyle(ordered ? style : bulletStyle(lf.indent()));
         for (QTextBlock b : blocks) {
             QTextBlockFormat bf = b.blockFormat();
             bf.setMarker(task ? (curTask && b.blockFormat().marker() == QTextBlockFormat::MarkerType::Checked
@@ -237,7 +261,7 @@ void NoteEditor::shiftListItem(int delta)
             continue;
         QTextListFormat lf = l->format();
         const int nl = lf.indent() + delta;
-        if (nl > 8)
+        if (nl > kMaxListIndent)
             continue;
         if (nl < 1) {
             l->remove(b);
@@ -249,6 +273,8 @@ void NoteEditor::shiftListItem(int delta)
             continue;
         }
         lf.setIndent(nl);
+        if (isBulletStyle(lf.style()))
+            lf.setStyle(bulletStyle(nl));
         QTextList* target = nullptr;
         for (QTextBlock p = b.previous(); p.isValid(); p = p.previous()) {
             QTextList* pl = p.textList();
@@ -575,6 +601,10 @@ void NoteEditor::keyPressEvent(QKeyEvent* e)
     const bool inCode = bf.boolProperty(PropCodeBlock);
     const int quote = bf.intProperty(PropQuoteLevel);
 
+    if (e->text() == QLatin1String(" ")
+        && !(e->modifiers() & (Qt::ControlModifier | Qt::AltModifier))
+        && tryAutoBullet())
+        return;
     switch (e->key()) {
     case Qt::Key_Tab:
         if (e->modifiers() & Qt::ControlModifier)
@@ -704,6 +734,11 @@ void NoteEditor::paintEvent(QPaintEvent* ev)
         if (r.bottom() < 0 || r.top() > viewport()->height())
             continue;
         const QTextBlockFormat bf = b.blockFormat();
+        if (const QTextList* list = b.textList(); list
+            && bf.marker() == QTextBlockFormat::MarkerType::NoMarker
+            && list->format().style() == QTextListFormat::ListSquare
+            && isOutlinedSquareLevel(list->format().indent()))
+            paintOutlinedSquare(p, b, r);
 
         const int q = bf.intProperty(PropQuoteLevel);
         for (int k = 0; k < q; ++k)
@@ -756,4 +791,76 @@ void NoteEditor::insertFromMimeData(const QMimeData* src)
     c.insertFragment(QTextDocumentFragment(&tmp));
     setTextCursor(c);
     ensureCursorVisible();
+}
+
+// ---------------------------------------------------------------- page layout
+void NoteEditor::updatePageMargins()
+{
+    const int spare = width() - verticalScrollBar()->sizeHint().width() - kPageWidth;
+    const int left = qMax(kPageGap, spare / 2);
+    const int right = qMax(kPageGap, spare - spare / 2);
+    setViewportMargins(left, kPageGap, right, kPageGap);
+}
+bool NoteEditor::event(QEvent* e)
+{
+    const bool handled = QTextEdit::event(e);
+    // This is the resize of the whole widget. (resizeEvent() reports the viewport.)
+    if (e->type() == QEvent::Resize)
+        updatePageMargins();
+    return handled;
+}
+// ---------------------------------------------------------------- auto bullets
+// Called when Space is pressed. Turns a leading "- " into a bullet, or nests
+// the item one level deeper if it is already in a list.
+bool NoteEditor::tryAutoBullet()
+{
+    QTextCursor c = textCursor();
+    if (c.hasSelection() || c.positionInBlock() != 1 || c.currentTable())
+        return false;
+    const QTextBlock b = c.block();
+    const QTextBlockFormat bf = b.blockFormat();
+    if (!b.text().startsWith(QLatin1Char('-')) || bf.boolProperty(PropCodeBlock)
+        || bf.headingLevel() > 0 || bf.boolProperty(PropIsRule) || bf.hasProperty(PropFootnoteDef))
+        return false;
+    const QTextList* list = b.textList();
+    if (list && list->format().indent() >= kMaxListIndent)
+        return false;
+
+    // Insert the space as a separate step, so Ctrl+Z restores a literal "- ".
+    c.insertText(QStringLiteral(" "));
+
+    c.beginEditBlock();
+    c.movePosition(QTextCursor::StartOfBlock);
+    c.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor, 2);
+    c.removeSelectedText();
+    if (list) {
+        shiftListItem(+1);
+        // "- " inside a numbered list gives a nested bullet, not a nested number.
+        const QTextList* nested = textCursor().block().textList();
+        if (nested && !isBulletStyle(nested->format().style()))
+            toggleList(QTextListFormat::ListDisc, false);
+    } else {
+        toggleList(QTextListFormat::ListDisc, false);
+    }
+    c.endEditBlock();
+    return true;
+}
+void NoteEditor::paintOutlinedSquare(QPainter& p, const QTextBlock& block, const QRectF& blockRect) const
+{
+    const QTextLayout* tl = block.layout();
+    if (tl->lineCount() == 0)
+        return;
+    // Same geometry Qt uses for its filled square marker.
+    const QFontMetrics fm(QFont(block.charFormat().font(), viewport()));
+    const int side = fm.lineSpacing() / 3;
+    const QPoint text = (blockRect.topLeft() + tl->lineAt(0).naturalTextRect().topLeft()).toPoint();
+    const QRectF square(text.x() - fm.horizontalAdvance(QLatin1Char(' ')) - side,
+        text.y() + fm.height() / 2 - side / 2.0, side, side);
+
+    p.save();
+    p.fillRect(square.adjusted(-1, -1, 1, 1), viewport()->palette().color(QPalette::Base));
+    p.setBrush(Qt::NoBrush);
+    p.setPen(QPen(palette().color(QPalette::Text), 1));
+    p.drawRect(square.adjusted(0.5, 0.5, -0.5, -0.5));
+    p.restore();
 }

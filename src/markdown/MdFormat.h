@@ -50,9 +50,9 @@ constexpr int kQuoteIndent = 22;
 inline QColor linkColor() { return QColor(0x6c, 0xb6, 0xff); }
 inline QColor mutedColor() { return QColor(0x76, 0x83, 0x90); }
 inline QColor borderColor() { return QColor(0x44, 0x4c, 0x56); }
-inline QColor codeBg() { return QColor(0x2d, 0x33, 0x3b); }
-inline QColor blockBg() { return QColor(0x1f, 0x23, 0x29); }
-inline QColor quoteBg() { return QColor(0x26, 0x2b, 0x33); }
+inline QColor codeBg() { return QColor(0x33, 0x39, 0x42); }
+inline QColor blockBg() { return QColor(0x1b, 0x1e, 0x23); }
+inline QColor quoteBg() { return QColor(0x2b, 0x31, 0x3a); }
 inline QColor highlightBg() { return QColor(0x7a, 0x62, 0x00); }
 inline QColor headerBg() { return QColor(0x30, 0x36, 0x3d); }
 
@@ -93,6 +93,30 @@ inline QTextCharFormat codeBlockCharFormat()
     f.setFontWeight(QFont::Normal);
     return f;
 }
+
+// ---- list bullets ---------------------------------------------------------
+constexpr int kMaxListIndent = 8;
+
+inline bool isBulletStyle(QTextListFormat::Style s)
+{
+    return s == QTextListFormat::ListDisc || s == QTextListFormat::ListCircle
+        || s == QTextListFormat::ListSquare;
+}
+// Symbols by depth (indent is 1-based): disc, circle, square, outlined square.
+// Qt has no outlined square, so that level uses ListSquare and the editor
+// repaints it as an outline.
+inline QTextListFormat::Style bulletStyle(int indent)
+{
+    switch ((qMax(indent, 1) - 1) % 4) {
+    case 0:
+        return QTextListFormat::ListDisc;
+    case 1:
+        return QTextListFormat::ListCircle;
+    default:
+        return QTextListFormat::ListSquare;
+    }
+}
+inline bool isOutlinedSquareLevel(int indent) { return (qMax(indent, 1) - 1) % 4 == 3; }
 
 // ---- inline format helpers ------------------------------------------------
 

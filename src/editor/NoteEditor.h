@@ -57,6 +57,7 @@ protected:
     void paintEvent(QPaintEvent* e) override;
     QMimeData* createMimeDataFromSelection() const override;
     void insertFromMimeData(const QMimeData* source) override;
+    bool event(QEvent* e) override;
 
 private:
     QVector<QTextBlock> selectedBlocks() const;
@@ -65,4 +66,8 @@ private:
 
     md::WriterOptions m_opts;
     QString m_lastLang;
+
+    bool tryAutoBullet();
+    void updatePageMargins();
+    void paintOutlinedSquare(QPainter& p, const QTextBlock& block, const QRectF& blockRect) const;
 };

@@ -287,11 +287,8 @@ namespace {
                                           : QTextBlockFormat::MarkerType::Unchecked);
             newBlock(bf, baseCharFormat());
 
-            static const QTextListFormat::Style bullets[] = {
-                QTextListFormat::ListDisc, QTextListFormat::ListCircle, QTextListFormat::ListSquare
-            };
             QTextListFormat lf;
-            lf.setStyle(it.ordered ? QTextListFormat::ListDecimal : bullets[it.level % 3]);
+            lf.setStyle(it.ordered ? QTextListFormat::ListDecimal : bulletStyle(it.level + 1));
             lf.setIndent(it.level + 1);
 
             QTextList* l = lists.value(it.level, nullptr);
