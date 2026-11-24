@@ -246,4 +246,4 @@ Recent directories, theme and auto-save preference are stored using Qt's `QSetti
 
 ## License
 
-_Add your license here._
+Pending
