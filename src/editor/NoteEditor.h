@@ -3,6 +3,8 @@
 #include <QTextEdit>
 #include <QTextListFormat>
 
+class CodeHighlighter;
+
 class NoteEditor : public QTextEdit {
     Q_OBJECT
 public:
@@ -11,7 +13,7 @@ public:
     QString exportMarkdown() const;
     void importMarkdown(const QString& markdown);
     void setBaseDirectory(const QString& dir); // for relative image paths
-
+    void applyThemeColors(); // call after the theme changes
     md::WriterOptions& writerOptions() { return m_opts; }
 
     int headingLevel() const;
@@ -70,4 +72,5 @@ private:
 
     md::WriterOptions m_opts;
     QString m_lastLang;
+    CodeHighlighter* m_highlighter = nullptr;
 };

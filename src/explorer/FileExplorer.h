@@ -12,13 +12,14 @@ public:
     explicit FileExplorer(QWidget* parent = nullptr);
     void setRoot(const QString& directory);
     void select(const QString& path);
+    QString focusedItem() const; // selected path, only while the tree has focus
 
 signals:
     void openRequested(const QString& path);
     void newNoteRequested(const QString& directory);
     void newFolderRequested(const QString& directory);
     void renameRequested(const QString& path);
-    void trashRequested(const QString& path);
+    void deleteRequested(const QString& path);
 
 private:
     void showContextMenu(const QPoint& pos);

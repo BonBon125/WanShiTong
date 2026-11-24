@@ -4,6 +4,7 @@
 #include "explorer/FileExplorer.h"
 #include "explorer/FolderView.h"
 #include "markdown/MdFormat.h"
+#include "theme/AppTheme.h"
 #include "ui/Icons.h"
 #include <QActionGroup>
 #include <QCloseEvent>
@@ -20,14 +21,18 @@
 #include <QPair>
 #include <QPlainTextEdit>
 #include <QSaveFile>
+#include <QSettings>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QToolBar>
+#include <QToolButton>
 #include <QVariant>
 #include <functional>
 
 namespace {
+constexpr int kAutoSaveDelayMs = 1000;
+
 QString cleanPath(const QString& path)
 {
     return QDir::cleanPath(QFileInfo(path).absoluteFilePath());
@@ -74,8 +79,13 @@ MainWindow::MainWindow(const QString& rootDirectory)
 
     m_previewTimer.setSingleShot(true);
     m_previewTimer.setInterval(250);
+    m_autoSaveTimer.setSingleShot(true);
+    m_autoSaveTimer.setInterval(kAutoSaveDelayMs);
+    // Each edit restarts both timers.
     connect(m_editor->document(), &QTextDocument::contentsChanged, &m_previewTimer, qOverload<>(&QTimer::start));
+    connect(m_editor->document(), &QTextDocument::contentsChanged, &m_autoSaveTimer, qOverload<>(&QTimer::start));
     connect(&m_previewTimer, &QTimer::timeout, this, &MainWindow::refreshPreview);
+    connect(&m_autoSaveTimer, &QTimer::timeout, this, &MainWindow::autoSave);
     connect(m_dock, &QDockWidget::visibilityChanged, this, &MainWindow::refreshPreview);
     connect(m_editor, &NoteEditor::stateChanged, this, &MainWindow::syncActions);
     connect(m_editor->document(), &QTextDocument::modificationChanged, this, &MainWindow::updateTitle);
@@ -84,12 +94,14 @@ MainWindow::MainWindow(const QString& rootDirectory)
     connect(m_explorer, &FileExplorer::newNoteRequested, this, &MainWindow::createNote);
     connect(m_explorer, &FileExplorer::newFolderRequested, this, &MainWindow::createFolder);
     connect(m_explorer, &FileExplorer::renameRequested, this, &MainWindow::renamePath);
-    connect(m_explorer, &FileExplorer::trashRequested, this, &MainWindow::trashPath);
+    connect(m_explorer, &FileExplorer::deleteRequested, this, &MainWindow::deletePath);
 
-    // Queued: opening a card rebuilds the list that emitted the signal.
+    // Queued: these actions rebuild the card list that emitted the signal.
     connect(m_folderView, &FolderView::openRequested, this, &MainWindow::openPath, Qt::QueuedConnection);
     connect(m_folderView, &FolderView::newNoteRequested, this, &MainWindow::createNote, Qt::QueuedConnection);
     connect(m_folderView, &FolderView::newFolderRequested, this, &MainWindow::createFolder, Qt::QueuedConnection);
+    connect(m_folderView, &FolderView::renameRequested, this, &MainWindow::renamePath, Qt::QueuedConnection);
+    connect(m_folderView, &FolderView::deleteRequested, this, &MainWindow::deletePath, Qt::QueuedConnection);
 
     setRoot(rootDirectory);
     syncActions();
@@ -125,11 +137,27 @@ void MainWindow::buildUi()
         [this] { createNote(targetDirectory()); });
     add(file, tr("New &folder…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N),
         [this] { createFolder(targetDirectory()); });
-    add(file, tr("&Switch notes directory…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O),
+    add(file, tr("S&witch notes directory…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O),
         [this] { switchRoot(); });
     file->addSeparator();
     QAction* save = add(file, tr("&Save"), QKeySequence::Save, [this] { saveFile(); });
     m_noteActions << save;
+    m_autoSave = file->addAction(tr("&Auto-save"));
+    m_autoSave->setCheckable(true);
+    m_autoSave->setChecked(QSettings().value(QStringLiteral("autoSave"), true).toBool());
+    connect(m_autoSave, &QAction::toggled, this, [this](bool on) {
+        QSettings().setValue(QStringLiteral("autoSave"), on);
+        autoSave();
+    });
+    file->addSeparator();
+    QAction* rename = add(file, tr("&Rename…"), QKeySequence(Qt::Key_F2), [this] {
+        const QString target = actionTarget();
+        renamePath(target);
+    });
+    QAction* remove = add(file, tr("&Delete…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Delete), [this] {
+        const QString target = actionTarget();
+        deletePath(target);
+    });
     file->addSeparator();
     add(file, tr("&Quit"), QKeySequence::Quit, [this] { close(); });
 
@@ -235,11 +263,24 @@ void MainWindow::buildUi()
     connect(explorer, &QAction::toggled, m_explorer, &QWidget::setVisible);
     QAction* source = m_dock->toggleViewAction();
     view->addAction(source);
+    view->addSeparator();
+
+    QMenu* themeMenu = view->addMenu(tr("Theme"));
+    auto* themeGroup = new QActionGroup(themeMenu);
+    for (const md::Theme& t : md::themes()) {
+        QAction* a = themeMenu->addAction(t.name);
+        a->setCheckable(true);
+        a->setChecked(t.id == md::theme().id);
+        themeGroup->addAction(a);
+        connect(a, &QAction::triggered, this, [this, id = t.id] { changeTheme(id); });
+    }
 
     // ---- Toolbar
     decorate(explorer, Glyph::Sidebar, tr("Toggle file explorer"));
     decorate(newNote, Glyph::NewNote, tr("New note"));
     decorate(save, Glyph::Save, tr("Save"));
+    decorate(rename, Glyph::Rename, tr("Rename"));
+    decorate(remove, Glyph::Trash, tr("Delete"));
     decorate(m_bold, Glyph::Bold, tr("Bold"));
     decorate(m_italic, Glyph::Italic, tr("Italic"));
     decorate(m_strike, Glyph::Strike, tr("Strikethrough"));
@@ -278,7 +319,7 @@ void MainWindow::buildUi()
     tb->setIconSize(QSize(20, 20));
     addToolBar(tb);
 
-    tb->addActions({ explorer, newNote, save });
+    tb->addActions({ explorer, newNote, save, rename, remove });
     tb->addSeparator();
     tb->addWidget(m_heading);
     tb->addSeparator();
@@ -292,7 +333,23 @@ void MainWindow::buildUi()
     tb->addWidget(spacer);
     tb->addAction(source);
 
+    auto* themeButton = new QToolButton(tb);
+    themeButton->setIcon(makeIcon(Glyph::Theme));
+    themeButton->setIconSize(QSize(20, 20));
+    themeButton->setToolTip(tr("Colour theme"));
+    themeButton->setMenu(themeMenu);
+    themeButton->setPopupMode(QToolButton::InstantPopup);
+    tb->addWidget(themeButton);
+
     statusBar()->setSizeGripEnabled(false);
+}
+
+void MainWindow::changeTheme(const QString& id)
+{
+    applyTheme(id);
+    m_editor->applyThemeColors();
+    m_folderView->refreshTheme();
+    refreshPreview();
 }
 
 // ---------------------------------------------------------------- navigation
@@ -382,6 +439,16 @@ QString MainWindow::targetDirectory() const
     return m_folder.isEmpty() ? m_root : m_folder;
 }
 
+QString MainWindow::actionTarget() const
+{
+    QString target = m_explorer->focusedItem();
+    if (target.isEmpty())
+        target = m_folderView->focusedItem();
+    if (target.isEmpty())
+        target = m_path.isEmpty() ? m_folder : m_path;
+    return target;
+}
+
 // ---------------------------------------------------------------- file management
 
 QString MainWindow::askName(const QString& title, const QString& initial)
@@ -432,6 +499,10 @@ void MainWindow::createFolder(const QString& directory)
 void MainWindow::renamePath(const QString& path)
 {
     const QString oldPath = cleanPath(path);
+    if (oldPath == m_root) {
+        statusBar()->showMessage(tr("Select a note or subfolder to rename."), 4000);
+        return;
+    }
     const QFileInfo info(oldPath);
     QString name = askName(tr("Rename"), info.isDir() ? info.fileName() : info.completeBaseName());
     if (name.isEmpty())
@@ -441,6 +512,7 @@ void MainWindow::renamePath(const QString& path)
     const QString newPath = info.dir().filePath(name);
     if (newPath == oldPath)
         return;
+    autoSave();
     if (QFileInfo::exists(newPath) || !QDir().rename(oldPath, newPath)) {
         QMessageBox::warning(this, tr("Rename"), tr("Cannot rename to \"%1\". It may already exist.").arg(name));
         return;
@@ -462,20 +534,43 @@ void MainWindow::renamePath(const QString& path)
     }
 }
 
-void MainWindow::trashPath(const QString& path)
+void MainWindow::deletePath(const QString& path)
 {
     const QString target = cleanPath(path);
-    const bool affectsNote = isAffected(m_path, target);
-    QString question = tr("Move \"%1\" to the trash?").arg(QFileInfo(target).fileName());
-    if (affectsNote && m_editor->document()->isModified())
-        question += tr("\n\nUnsaved changes to the open note will be lost.");
-    if (QMessageBox::question(this, tr("Move to trash"), question) != QMessageBox::Yes)
-        return;
-    if (!QFile::moveToTrash(target)) {
-        QMessageBox::warning(this, tr("Move to trash"), tr("Could not move %1 to the trash.").arg(target));
+    if (target == m_root) {
+        statusBar()->showMessage(tr("Select a note or subfolder to delete."), 4000);
         return;
     }
-    const QString parent = QFileInfo(target).absolutePath();
+    const QFileInfo info(target);
+    const bool affectsNote = isAffected(m_path, target);
+    if (affectsNote)
+        autoSave(); // so the copy in the trash is up to date
+
+    QString question = info.isDir()
+        ? tr("Delete the folder \"%1\" and everything inside it?").arg(info.fileName())
+        : tr("Delete the note \"%1\"?").arg(info.completeBaseName());
+    if (affectsNote && m_editor->document()->isModified())
+        question += tr("\n\nUnsaved changes to the open note will be lost.");
+    if (QMessageBox::question(this, tr("Delete"), question) != QMessageBox::Yes)
+        return;
+
+    if (!QFile::moveToTrash(target)) {
+        const auto answer = QMessageBox::warning(this, tr("Delete"),
+            tr("\"%1\" could not be moved to the trash.\n\nDelete it permanently? This cannot be undone.")
+                .arg(info.fileName()),
+            QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
+        if (answer != QMessageBox::Yes)
+            return;
+        // A symlink is removed itself; the folder it points to is left alone.
+        const bool removed = (info.isDir() && !info.isSymLink()) ? QDir(target).removeRecursively()
+                                                                 : QFile::remove(target);
+        if (!removed) {
+            QMessageBox::warning(this, tr("Delete"), tr("Could not delete %1").arg(target));
+            return;
+        }
+    }
+
+    const QString parent = info.absolutePath();
     if (affectsNote) {
         m_path.clear();
         m_editor->importMarkdown(QString());
@@ -487,8 +582,21 @@ void MainWindow::trashPath(const QString& path)
 
 // ---------------------------------------------------------------- saving & state
 
+void MainWindow::autoSave()
+{
+    if (!m_autoSave->isChecked() || m_path.isEmpty() || !m_editor->document()->isModified())
+        return;
+    // Don't silently recreate a file that another program has removed.
+    if (!QFileInfo::exists(m_path)) {
+        statusBar()->showMessage(tr("Auto-save paused: the file no longer exists. Press Ctrl+S to recreate it."), 6000);
+        return;
+    }
+    writeTo(m_path, true);
+}
+
 bool MainWindow::maybeSave()
 {
+    autoSave();
     if (m_path.isEmpty() || !m_editor->document()->isModified())
         return true;
     const auto r = QMessageBox::question(this, tr("Unsaved changes"),
@@ -499,16 +607,20 @@ bool MainWindow::maybeSave()
     return r == QMessageBox::Discard;
 }
 
-bool MainWindow::writeTo(const QString& path)
+bool MainWindow::writeTo(const QString& path, bool quiet)
 {
     QSaveFile f(path);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        QMessageBox::warning(this, tr("Save"), tr("Cannot write %1").arg(path));
-        return false;
+    bool ok = f.open(QIODevice::WriteOnly | QIODevice::Text);
+    if (ok) {
+        f.write(m_editor->exportMarkdown().toUtf8());
+        ok = f.commit();
     }
-    f.write(m_editor->exportMarkdown().toUtf8());
-    if (!f.commit()) {
-        QMessageBox::warning(this, tr("Save"), tr("Cannot write %1").arg(path));
+    if (!ok) {
+        // Auto-save must not interrupt typing with dialogs.
+        if (quiet)
+            statusBar()->showMessage(tr("Auto-save failed: cannot write %1").arg(path), 6000);
+        else
+            QMessageBox::warning(this, tr("Save"), tr("Cannot write %1").arg(path));
         return false;
     }
     m_editor->document()->setModified(false);
@@ -559,6 +671,13 @@ void MainWindow::updateTitle()
             .arg(QFileInfo(m_path).completeBaseName(),
                 m_editor->document()->isModified() ? QStringLiteral("*") : QString(),
                 rootName));
+}
+
+void MainWindow::changeEvent(QEvent* e)
+{
+    if (e->type() == QEvent::ActivationChange && m_autoSave && !isActiveWindow())
+        autoSave();
+    QMainWindow::changeEvent(e);
 }
 
 void MainWindow::closeEvent(QCloseEvent* e)

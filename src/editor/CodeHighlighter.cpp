@@ -1,11 +1,9 @@
 #include "CodeHighlighter.h"
 #include "markdown/MdFormat.h"
-
 #include <QHash>
 #include <QSet>
 
 namespace {
-
 struct Lang {
     QSet<QString> kw;
     QString line;
@@ -55,17 +53,28 @@ const Lang* langFor(const QString& name)
     const auto it = langs.constFind(name.toLower());
     return it == langs.constEnd() ? nullptr : &*it;
 }
-
 } // namespace
 
 CodeHighlighter::CodeHighlighter(QTextDocument* doc)
     : QSyntaxHighlighter(doc)
 {
-    m_keyword.setForeground(QColor(0xff, 0x7b, 0x72));
-    m_string.setForeground(QColor(0xa5, 0xd6, 0xff));
-    m_number.setForeground(QColor(0x79, 0xc0, 0xff));
-    m_comment.setForeground(QColor(0x8b, 0x94, 0x9e));
+    loadColors();
+}
+
+void CodeHighlighter::loadColors()
+{
+    const md::Theme& t = md::theme();
+    m_keyword.setForeground(t.keyword);
+    m_string.setForeground(t.string);
+    m_number.setForeground(t.number);
+    m_comment.setForeground(t.comment);
     m_comment.setFontItalic(true);
+}
+
+void CodeHighlighter::refreshTheme()
+{
+    loadColors();
+    rehighlight();
 }
 
 void CodeHighlighter::highlightBlock(const QString& text)
