@@ -1,4 +1,4 @@
-add_library(mdnote_core STATIC
+add_library(WanShiTong_core STATIC
     markdown/MdFormat.h
     markdown/MarkdownParser.h
     markdown/MarkdownParser.cpp
@@ -6,11 +6,11 @@ add_library(mdnote_core STATIC
     markdown/MarkdownWriter.cpp
     theme/Theme.h
     theme/Theme.cpp)
-target_include_directories(mdnote_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(mdnote_core PUBLIC Qt6::Gui)
-target_compile_options(mdnote_core PRIVATE -Wall -Wextra)
+target_include_directories(WanShiTong_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(WanShiTong_core PUBLIC Qt6::Gui)
+target_compile_options(WanShiTong_core PRIVATE -Wall -Wextra)
 
-add_executable(mdnote
+add_executable(WanShiTong
     main.cpp
     app/MainWindow.h
     app/MainWindow.cpp
@@ -28,5 +28,5 @@ add_executable(mdnote
     theme/AppTheme.cpp
     ui/Icons.h
     ui/Icons.cpp)
-target_link_libraries(mdnote PRIVATE mdnote_core Qt6::Widgets)
-target_compile_options(mdnote PRIVATE -Wall -Wextra)
+target_link_libraries(WanShiTong PRIVATE WanShiTong_core Qt6::Widgets)
+target_compile_options(WanShiTong PRIVATE -Wall -Wextra)

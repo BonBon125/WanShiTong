@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
-Name=mdnote
+Name=WanShiTong
 Comment=Markdown note editor with hidden syntax
-Exec=mdnote
+Exec=WanShiTong
 Terminal=false
 Categories=Office;TextEditor;

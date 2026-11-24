@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(mdnote VERSION 0.1.0
+project(WanShiTong VERSION 0.1.0
         DESCRIPTION "WYSIWYG-style note editor that stores Markdown"
         LANGUAGES CXX)
 
@@ -11,16 +11,16 @@ set(CMAKE_AUTOMOC ON)
 
 find_package(Qt6 6.2 REQUIRED COMPONENTS Widgets)
 
-option(MDNOTE_BUILD_TESTS "Build unit tests" ON)
+option(WANSHITONG_BUILD_TESTS "Build unit tests" ON)
 
 add_subdirectory(src)
 
-if(MDNOTE_BUILD_TESTS)
+if(WANSHITONG_BUILD_TESTS)
     find_package(Qt6 6.2 REQUIRED COMPONENTS Test)
     enable_testing()
     add_subdirectory(tests)
 endif()
 
 include(GNUInstallDirs)
-install(TARGETS mdnote RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-install(FILES packaging/mdnote.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+install(TARGETS WanShiTong RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES packaging/WanShiTong.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)

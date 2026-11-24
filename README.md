@@ -1,4 +1,4 @@
-# mdnote
+# WanShiTong
 
 A WYSIWYG-style note editor that stores plain Markdown. You write in a clean, formatted view with the Markdown syntax hidden, and your notes stay as ordinary `.md` files in a directory you choose.
 
@@ -69,15 +69,15 @@ sudo pacman -S base-devel cmake ninja qt6-base
 # Release build
 cmake --preset release
 cmake --build --preset release
-./build/release/src/mdnote
+./build/release/src/WanShiTong
 
 # Debug build
 cmake --preset debug
 cmake --build --preset debug
-./build/debug/src/mdnote
+./build/debug/src/WanShiTong
 ```
 
-To skip building the tests, add `-DMDNOTE_BUILD_TESTS=OFF` to the configure command.
+To skip building the tests, add `-DWANSHITONG_BUILD_TESTS=OFF` to the configure command.
 
 ### Running the tests
 
@@ -91,13 +91,13 @@ ctest --test-dir build/debug --output-on-failure
 cmake --install build/release --prefix ~/.local
 ```
 
-This installs the `mdnote` binary and a desktop entry.
+This installs the `WanShiTong` binary and a desktop entry.
 
 ## Usage
 
 ### Getting started
 
-1. Launch `mdnote`.
+1. Launch `WanShiTong`.
 2. Choose **Create new…**, **Open directory…**, or pick a recent directory.
 3. Create a note with **Ctrl+N** and start writing.
 
@@ -215,7 +215,7 @@ Output style (emphasis marker, bullet character, line break style and list inden
 
 ## Limitations
 
-- Saving rewrites a note in mdnote's Markdown style. Formatting details or unsupported syntax (such as raw HTML) may be changed or lost. Back up important files before editing them.
+- Saving rewrites a note in WanShiTong's Markdown style. Formatting details or unsupported syntax (such as raw HTML) may be changed or lost. Back up important files before editing them.
 - Changes made to an open note by another program are not detected, and saving will overwrite them.
 - Bullet symbols come from nesting depth. They are not stored in the file.
 - A nested list item with no parent item above it is moved to the top level when reopened.
@@ -223,7 +223,7 @@ Output style (emphasis marker, bullet character, line break style and list inden
 
 ## Settings
 
-Recent directories, theme and auto-save preference are stored using Qt's `QSettings`. On Linux this is `~/.config/mdnote/mdnote.conf`.
+Recent directories, theme and auto-save preference are stored using Qt's `QSettings`. On Linux this is `~/.config/WanShiTong/WanShiTong.conf`.
 
 ## Project structure
 

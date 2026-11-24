@@ -20,10 +20,10 @@ constexpr int kMaxRecent = 6;
 WelcomeDialog::WelcomeDialog(QWidget* parent)
     : QDialog(parent)
 {
-    setWindowTitle(tr("mdnote — Choose notes directory"));
+    setWindowTitle(tr("WanShiTong — Choose notes directory"));
     setMinimumSize(520, 420);
 
-    auto* title = new QLabel(tr("Welcome to mdnote"), this);
+    auto* title = new QLabel(tr("Welcome to WanShiTong"), this);
     title->setObjectName(QStringLiteral("heading"));
     auto* subtitle = new QLabel(tr("Choose the directory where your notes live."), this);
     subtitle->setObjectName(QStringLiteral("muted"));

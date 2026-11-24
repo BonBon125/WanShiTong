@@ -664,10 +664,10 @@ void MainWindow::updateTitle()
 {
     const QString rootName = QFileInfo(m_root).fileName();
     if (m_path.isEmpty()) {
-        setWindowTitle(QStringLiteral("%1 — mdnote").arg(rootName));
+        setWindowTitle(QStringLiteral("%1 — WanShiTong").arg(rootName));
         return;
     }
-    setWindowTitle(QStringLiteral("%1%2 — %3 — mdnote")
+    setWindowTitle(QStringLiteral("%1%2 — %3 — WanShiTong")
             .arg(QFileInfo(m_path).completeBaseName(),
                 m_editor->document()->isModified() ? QStringLiteral("*") : QString(),
                 rootName));

@@ -7,8 +7,8 @@
 int main(int argc, char** argv)
 {
     QApplication app(argc, argv);
-    app.setOrganizationName("mdnote");
-    app.setApplicationName("mdnote");
+    app.setOrganizationName("WanShiTong");
+    app.setApplicationName("WanShiTong");
     app.setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
     applyTheme(savedThemeId());
 
